@@ -34,7 +34,7 @@ class _RegisterPageState extends State<RegisterPage> {
     'AB+',
     'AB-',
   ];
-  final List<String> genders = ['Male', 'Female', 'Other'];
+  final List<String> genders = ['Male', 'Female', 'Bolbo na'];
 
   void _handleRegister() {
     final name = _nameController.text.trim();
