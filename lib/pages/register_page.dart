@@ -1,4 +1,51 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+class District {
+  final String id;
+  final String nameEn;
+  final String divisionId;
+
+  District({required this.id, required this.nameEn, required this.divisionId});
+
+  factory District.fromJson(Map<String, dynamic> json) {
+    return District(
+      id: json['id'] as String,
+      nameEn: json['name_en'] as String,
+      divisionId: json['division_id'] as String,
+    );
+  }
+}
+
+class Upazila {
+  final String districtId;
+  final String nameEn;
+
+  Upazila({required this.districtId, required this.nameEn});
+
+  factory Upazila.fromJson(Map<String, dynamic> json) {
+    return Upazila(
+      districtId: json['district_id'] as String,
+      nameEn: json['name_en'] as String,
+    );
+  }
+}
+
+class Division {
+  final String id;
+  final String nameEn;
+
+  Division({required this.id, required this.nameEn});
+
+  factory Division.fromJson(Map<String, dynamic> json) {
+    return Division(
+      id: json['id'] as String,
+      nameEn: json['name_en'] as String,
+    );
+  }
+}
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -19,10 +66,15 @@ class _RegisterPageState extends State<RegisterPage> {
 
   String? _selectedBloodType;
   String? _selectedGender;
+  String? _selectedDivision;
+  String? _selectedDistrict;
+  String? _selectedUpazila;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _agreeToTerms = false;
   bool _isLoading = false;
+  bool _geoLoaded = false;
+  String? _geoError;
 
   final List<String> bloodTypes = [
     'O+',
@@ -35,6 +87,84 @@ class _RegisterPageState extends State<RegisterPage> {
     'AB-',
   ];
   final List<String> genders = ['Male', 'Female', 'Bolbo na'];
+
+  List<Division> _divisions = [];
+  List<District> _districts = [];
+  List<Upazila> _upazilas = [];
+
+  String? get _selectedDivisionId {
+    if (_selectedDivision == null) return null;
+    try {
+      return _divisions
+          .firstWhere((division) => division.nameEn == _selectedDivision)
+          .id;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  List<String> get _districtOptions {
+    if (_selectedDivisionId == null) return [];
+    return _districts
+        .where((district) => district.divisionId == _selectedDivisionId)
+        .map((district) => district.nameEn)
+        .toList();
+  }
+
+  List<String> get _upazilaOptions {
+    if (_selectedDistrict == null) return [];
+    final districtId = _districts
+        .firstWhere((district) => district.nameEn == _selectedDistrict)
+        .id;
+    return _upazilas
+        .where((upazila) => upazila.districtId == districtId)
+        .map((upazila) => upazila.nameEn)
+        .toList();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadGeoData();
+  }
+
+  Future<void> _loadGeoData() async {
+    try {
+      final divisionJson = await rootBundle.loadString(
+        'assets/geodata/divisions.json',
+      );
+      final districtJson = await rootBundle.loadString(
+        'assets/geodata/districts.json',
+      );
+      final upazilaJson = await rootBundle.loadString(
+        'assets/geodata/upazilas.json',
+      );
+
+      final List<dynamic> divisionData = json.decode(divisionJson);
+      final List<dynamic> districtData = json.decode(districtJson);
+      final List<dynamic> upazilaData = json.decode(upazilaJson);
+
+      _divisions = divisionData
+          .map((item) => Division.fromJson(item as Map<String, dynamic>))
+          .toList();
+
+      _districts = districtData
+          .map((item) => District.fromJson(item as Map<String, dynamic>))
+          .toList();
+
+      _upazilas = upazilaData
+          .map((item) => Upazila.fromJson(item as Map<String, dynamic>))
+          .toList();
+
+      setState(() {
+        _geoLoaded = true;
+      });
+    } catch (error) {
+      setState(() {
+        _geoError = error.toString();
+      });
+    }
+  }
 
   void _handleRegister() {
     final name = _nameController.text.trim();
@@ -53,7 +183,10 @@ class _RegisterPageState extends State<RegisterPage> {
         age.isEmpty ||
         city.isEmpty ||
         _selectedBloodType == null ||
-        _selectedGender == null) {
+        _selectedGender == null ||
+        _selectedDivision == null ||
+        _selectedDistrict == null ||
+        _selectedUpazila == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please fill in all fields'),
@@ -198,7 +331,7 @@ class _RegisterPageState extends State<RegisterPage> {
               _buildTextField(
                 controller: _nameController,
                 label: 'Full Name',
-                hint: 'Enter your full name',
+                hint: 'Name bolen, who cares about your chakri',
                 icon: Icons.person_outline,
                 enabled: !_isLoading,
               ),
@@ -251,7 +384,7 @@ class _RegisterPageState extends State<RegisterPage> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<String>(
-                          value: _selectedGender,
+                          initialValue: _selectedGender,
                           onChanged: _isLoading
                               ? null
                               : (value) {
@@ -300,12 +433,78 @@ class _RegisterPageState extends State<RegisterPage> {
               ),
               const SizedBox(height: 16),
               // City
-              _buildTextField(
-                controller: _cityController,
-                label: 'City',
-                hint: 'Your city',
-                icon: Icons.location_city_outlined,
-                enabled: !_isLoading,
+              // _buildTextField(
+              //   controller: _cityController,
+              //   label: 'City',
+              //   hint: 'Your city',
+              //   icon: Icons.location_city_outlined,
+              //   enabled: !_isLoading,
+              // ),
+              const SizedBox(height: 16),
+              if (!_geoLoaded && _geoError == null)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: CircularProgressIndicator(color: Colors.red),
+                  ),
+                ),
+              if (_geoError != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16.0),
+                  child: Text(
+                    'Location data failed to load',
+                    style: TextStyle(color: Colors.red.shade700),
+                  ),
+                ),
+              // Division
+              _buildDropdownField(
+                label: 'Division',
+                value: _selectedDivision,
+                hint: 'Select division',
+                icon: Icons.public_outlined,
+                items: _divisions.map((d) => d.nameEn).toList(),
+                onChanged: !_geoLoaded || _isLoading
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _selectedDivision = value;
+                          _selectedDistrict = null;
+                          _selectedUpazila = null;
+                        });
+                      },
+              ),
+              const SizedBox(height: 16),
+              // District
+              _buildDropdownField(
+                label: 'District',
+                value: _selectedDistrict,
+                hint: 'Select district',
+                icon: Icons.map_outlined,
+                items: _districtOptions,
+                onChanged: !_geoLoaded || _isLoading
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _selectedDistrict = value;
+                          _selectedUpazila = null;
+                        });
+                      },
+              ),
+              const SizedBox(height: 16),
+              // Upazila
+              _buildDropdownField(
+                label: 'Upazila',
+                value: _selectedUpazila,
+                hint: 'Select upazila',
+                icon: Icons.location_pin,
+                items: _upazilaOptions,
+                onChanged: !_geoLoaded || _isLoading
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _selectedUpazila = value;
+                        });
+                      },
               ),
               const SizedBox(height: 16),
               // Blood Type
@@ -322,7 +521,7 @@ class _RegisterPageState extends State<RegisterPage> {
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    value: _selectedBloodType,
+                    initialValue: _selectedBloodType,
                     onChanged: _isLoading
                         ? null
                         : (value) {
@@ -538,6 +737,57 @@ class _RegisterPageState extends State<RegisterPage> {
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(color: Colors.grey.shade400),
+            prefixIcon: Icon(icon, color: Colors.red),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              vertical: 14,
+              horizontal: 12,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDropdownField({
+    required String label,
+    required String hint,
+    required IconData icon,
+    required List<String> items,
+    required String? value,
+    required ValueChanged<String?>? onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          initialValue: value,
+          onChanged: onChanged,
+          items: items
+              .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+              .toList(),
+          decoration: InputDecoration(
+            hintText: hint,
             prefixIcon: Icon(icon, color: Colors.red),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
