@@ -1,7 +1,11 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import '../models/user_model.dart';
+import '../services/db_helper.dart';
+import 'welcome_page.dart';
 
 class District {
   final String id;
@@ -55,6 +59,7 @@ class RegisterPage extends StatefulWidget {
 }
 
 class _RegisterPageState extends State<RegisterPage> {
+  final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
@@ -147,11 +152,9 @@ class _RegisterPageState extends State<RegisterPage> {
       _divisions = divisionData
           .map((item) => Division.fromJson(item as Map<String, dynamic>))
           .toList();
-
       _districts = districtData
           .map((item) => District.fromJson(item as Map<String, dynamic>))
           .toList();
-
       _upazilas = upazilaData
           .map((item) => Upazila.fromJson(item as Map<String, dynamic>))
           .toList();
@@ -166,13 +169,13 @@ class _RegisterPageState extends State<RegisterPage> {
     }
   }
 
-  void _handleRegister() {
+  Future<void> _handleRegister() async {
     final name = _nameController.text.trim();
     final email = _emailController.text.trim();
     final phone = _phoneController.text.trim();
     final password = _passwordController.text;
     final confirmPassword = _confirmPasswordController.text;
-    final age = _ageController.text.trim();
+    final ageText = _ageController.text.trim();
     final city = _cityController.text.trim();
 
     if (name.isEmpty ||
@@ -180,7 +183,7 @@ class _RegisterPageState extends State<RegisterPage> {
         phone.isEmpty ||
         password.isEmpty ||
         confirmPassword.isEmpty ||
-        age.isEmpty ||
+        ageText.isEmpty ||
         city.isEmpty ||
         _selectedBloodType == null ||
         _selectedGender == null ||
@@ -236,8 +239,8 @@ class _RegisterPageState extends State<RegisterPage> {
       return;
     }
 
-    int? ageInt = int.tryParse(age);
-    if (ageInt == null || ageInt < 18 || ageInt > 65) {
+    final age = int.tryParse(ageText);
+    if (age == null || age < 18 || age > 65) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Age must be between 18 and 65'),
@@ -257,25 +260,70 @@ class _RegisterPageState extends State<RegisterPage> {
       return;
     }
 
-    // Simulate registration
     setState(() => _isLoading = true);
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Welcome, $name! Registration successful.'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-        // Navigate to home after delay
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted) {
-            Navigator.pushReplacementNamed(context, '/home');
-          }
-        });
-      }
-    });
+    final exists = await DBHelper.instance.emailExists(email);
+    if (!mounted) return;
+
+    if (exists) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Email already registered'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final user = UserModel(
+      name: name,
+      email: email,
+      password: password,
+      phone: phone,
+      age: age,
+      city: city,
+      gender: _selectedGender!,
+      division: _selectedDivision!,
+      district: _selectedDistrict!,
+      upazila: _selectedUpazila!,
+      bloodGroup: _selectedBloodType!,
+      createdAt: DateTime.now().toIso8601String(),
+    );
+
+    final id = await DBHelper.instance.insertUser(user);
+    setState(() => _isLoading = false);
+    if (!mounted) return;
+
+    if (id > 0) {
+      final savedUser = UserModel(
+        id: id,
+        name: user.name,
+        email: user.email,
+        password: user.password,
+        phone: user.phone,
+        age: user.age,
+        city: user.city,
+        gender: user.gender,
+        division: user.division,
+        district: user.district,
+        upazila: user.upazila,
+        bloodGroup: user.bloodGroup,
+        createdAt: user.createdAt,
+      );
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => WelcomePage(user: savedUser)),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Registration failed'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -307,36 +355,28 @@ class _RegisterPageState extends State<RegisterPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Join Our Community',
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Create account and help save lives',
-                    style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
-                  ),
-                ],
+              const Text(
+                'Join Our Community',
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Create account and help save lives',
+                style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
               ),
               const SizedBox(height: 32),
-              // Full Name
               _buildTextField(
                 controller: _nameController,
                 label: 'Full Name',
-                hint: 'Name bolen, who cares about your chakri',
+                hint: 'Enter your name',
                 icon: Icons.person_outline,
                 enabled: !_isLoading,
               ),
               const SizedBox(height: 16),
-              // Email
               _buildTextField(
                 controller: _emailController,
                 label: 'Email Address',
@@ -346,7 +386,6 @@ class _RegisterPageState extends State<RegisterPage> {
                 enabled: !_isLoading,
               ),
               const SizedBox(height: 16),
-              // Phone
               _buildTextField(
                 controller: _phoneController,
                 label: 'Phone Number',
@@ -356,7 +395,6 @@ class _RegisterPageState extends State<RegisterPage> {
                 enabled: !_isLoading,
               ),
               const SizedBox(height: 16),
-              // Age & Gender Row
               Row(
                 children: [
                   Expanded(
@@ -384,7 +422,7 @@ class _RegisterPageState extends State<RegisterPage> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<String>(
-                          initialValue: _selectedGender,
+                          value: _selectedGender,
                           onChanged: _isLoading
                               ? null
                               : (value) {
@@ -432,14 +470,13 @@ class _RegisterPageState extends State<RegisterPage> {
                 ],
               ),
               const SizedBox(height: 16),
-              // City
-              // _buildTextField(
-              //   controller: _cityController,
-              //   label: 'City',
-              //   hint: 'Your city',
-              //   icon: Icons.location_city_outlined,
-              //   enabled: !_isLoading,
-              // ),
+              _buildTextField(
+                controller: _cityController,
+                label: 'City',
+                hint: 'Enter your city',
+                icon: Icons.location_city_outlined,
+                enabled: !_isLoading,
+              ),
               const SizedBox(height: 16),
               if (!_geoLoaded && _geoError == null)
                 const Center(
@@ -456,7 +493,6 @@ class _RegisterPageState extends State<RegisterPage> {
                     style: TextStyle(color: Colors.red.shade700),
                   ),
                 ),
-              // Division
               _buildDropdownField(
                 label: 'Division',
                 value: _selectedDivision,
@@ -474,7 +510,6 @@ class _RegisterPageState extends State<RegisterPage> {
                       },
               ),
               const SizedBox(height: 16),
-              // District
               _buildDropdownField(
                 label: 'District',
                 value: _selectedDistrict,
@@ -491,7 +526,6 @@ class _RegisterPageState extends State<RegisterPage> {
                       },
               ),
               const SizedBox(height: 16),
-              // Upazila
               _buildDropdownField(
                 label: 'Upazila',
                 value: _selectedUpazila,
@@ -507,65 +541,19 @@ class _RegisterPageState extends State<RegisterPage> {
                       },
               ),
               const SizedBox(height: 16),
-              // Blood Type
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Blood Type',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    initialValue: _selectedBloodType,
-                    onChanged: _isLoading
-                        ? null
-                        : (value) {
-                            setState(() => _selectedBloodType = value);
-                          },
-                    items: bloodTypes
-                        .map(
-                          (bloodType) => DropdownMenuItem(
-                            value: bloodType,
-                            child: Text(bloodType),
-                          ),
-                        )
-                        .toList(),
-                    decoration: InputDecoration(
-                      hintText: 'Select your blood type',
-                      prefixIcon: const Icon(
-                        Icons.bloodtype_outlined,
-                        color: Colors.red,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: Colors.grey.shade300),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: Colors.grey.shade300),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(
-                          color: Colors.red,
-                          width: 2,
-                        ),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: 14,
-                        horizontal: 12,
-                      ),
-                    ),
-                  ),
-                ],
+              _buildDropdownField(
+                label: 'Blood Group',
+                value: _selectedBloodType,
+                hint: 'Select your blood group',
+                icon: Icons.bloodtype_outlined,
+                items: bloodTypes,
+                onChanged: _isLoading
+                    ? null
+                    : (value) {
+                        setState(() => _selectedBloodType = value);
+                      },
               ),
               const SizedBox(height: 16),
-              // Password
               _buildPasswordField(
                 controller: _passwordController,
                 label: 'Password',
@@ -577,7 +565,6 @@ class _RegisterPageState extends State<RegisterPage> {
                 enabled: !_isLoading,
               ),
               const SizedBox(height: 16),
-              // Confirm Password
               _buildPasswordField(
                 controller: _confirmPasswordController,
                 label: 'Confirm Password',
@@ -591,7 +578,6 @@ class _RegisterPageState extends State<RegisterPage> {
                 enabled: !_isLoading,
               ),
               const SizedBox(height: 20),
-              // Terms and Conditions
               Row(
                 children: [
                   SizedBox(
@@ -608,42 +594,15 @@ class _RegisterPageState extends State<RegisterPage> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Expanded(
-                    child: RichText(
-                      text: TextSpan(
-                        children: [
-                          const TextSpan(
-                            text: 'I agree to ',
-                            style: TextStyle(color: Colors.black87),
-                          ),
-                          TextSpan(
-                            text: 'Terms of Service',
-                            style: const TextStyle(
-                              color: Colors.red,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            recognizer: null,
-                          ),
-                          const TextSpan(
-                            text: ' and ',
-                            style: TextStyle(color: Colors.black87),
-                          ),
-                          TextSpan(
-                            text: 'Privacy Policy',
-                            style: const TextStyle(
-                              color: Colors.red,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            recognizer: null,
-                          ),
-                        ],
-                      ),
+                  const Expanded(
+                    child: Text(
+                      'I agree to Terms of Service and Privacy Policy',
+                      style: TextStyle(color: Colors.black87),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 32),
-              // Register Button
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -678,7 +637,6 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
               ),
               const SizedBox(height: 24),
-              // Login Link
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -730,7 +688,7 @@ class _RegisterPageState extends State<RegisterPage> {
           ),
         ),
         const SizedBox(height: 8),
-        TextField(
+        TextFormField(
           controller: controller,
           keyboardType: keyboardType,
           enabled: enabled,
@@ -755,6 +713,21 @@ class _RegisterPageState extends State<RegisterPage> {
               horizontal: 12,
             ),
           ),
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return 'Enter your $label';
+            }
+            if (label == 'Email Address' && !value.contains('@')) {
+              return 'Enter a valid email';
+            }
+            if (label == 'Phone Number' && value.length < 10) {
+              return 'Enter a valid phone number';
+            }
+            if (label == 'Age' && int.tryParse(value) == null) {
+              return 'Enter a valid age';
+            }
+            return null;
+          },
         ),
       ],
     );
@@ -781,7 +754,7 @@ class _RegisterPageState extends State<RegisterPage> {
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          initialValue: value,
+          value: value,
           onChanged: onChanged,
           items: items
               .map((item) => DropdownMenuItem(value: item, child: Text(item)))
@@ -831,7 +804,7 @@ class _RegisterPageState extends State<RegisterPage> {
           ),
         ),
         const SizedBox(height: 8),
-        TextField(
+        TextFormField(
           controller: controller,
           obscureText: obscure,
           enabled: enabled,
@@ -865,6 +838,15 @@ class _RegisterPageState extends State<RegisterPage> {
               horizontal: 12,
             ),
           ),
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return 'Enter your $label';
+            }
+            if (value.length < 6) {
+              return 'Use 6+ characters';
+            }
+            return null;
+          },
         ),
       ],
     );
